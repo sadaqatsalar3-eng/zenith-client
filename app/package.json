@@ -4,7 +4,10 @@
   "version": "1.0.0",
   "description": "Zenith Client, a Minecraft launcher",
   "main": "main.js",
-  "author": {"name": "Zenith", "email": "sadaqatsalar3-eng@users.noreply.github.com"},
+  "author": {
+    "name": "Zenith",
+    "email": "sadaqatsalar3-eng@users.noreply.github.com"
+  },
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder"
@@ -50,5 +53,6 @@
       "category": "public.app-category.games",
       "artifactName": "Zenith-Client-${version}.${ext}"
     }
-  }
+  },
+  "homepage": "https://github.com/sadaqatsalar3-eng/zenith-client"
 }

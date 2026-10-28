@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Zenith Client, a Minecraft launcher",
   "main": "main.js",
-  "author": "Zenith",
+  "author": {"name": "Zenith", "email": "sadaqatsalar3-eng@users.noreply.github.com"},
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder"

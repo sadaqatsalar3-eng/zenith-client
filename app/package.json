@@ -1,0 +1,54 @@
+{
+  "name": "zenith-client",
+  "productName": "Zenith Client",
+  "version": "1.0.0",
+  "description": "Zenith Client, a Minecraft launcher",
+  "main": "main.js",
+  "author": "Zenith",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "net.zenith.client",
+    "productName": "Zenith Client",
+    "icon": "icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "engine.js",
+      "launcher/**",
+      "icon.png"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Game",
+      "icon": "icon.png",
+      "artifactName": "Zenith-Client-${version}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Zenith-Client-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.games",
+      "artifactName": "Zenith-Client-${version}.${ext}"
+    }
+  }
+}

@@ -98,16 +98,20 @@ function merge(base, over) {
 }
 
 // ---------- java ----------
+function hasGui(bin) {
+  if (process.platform !== 'linux') return true;
+  try { const home = path.dirname(path.dirname(fs.realpathSync(bin))); return fs.existsSync(path.join(home, 'lib', 'libawt_xawt.so')); } catch (e) { return true; }
+}
 function javaMajor(bin) {
   try { const r = cp.spawnSync(bin, ['-version'], { encoding: 'utf8' }); const m = /version "(\d+)(?:\.(\d+))?/.exec((r.stderr || '') + (r.stdout || '')); if (!m) return 0; return m[1] === '1' ? +m[2] : +m[1]; } catch (e) { return 0; }
 }
 async function findJava(root, need, emit, progress) {
   const exe = process.platform === 'win32' ? 'java.exe' : 'java';
   const local = path.join(root, 'runtime', 'java' + need);
-  const lb = await findBin(local, exe); if (lb && javaMajor(lb) >= need) return lb;
+  const lb = await findBin(local, exe); if (lb && javaMajor(lb) >= need && hasGui(lb)) return lb;
   const cands = [process.env.JAVA_HOME && path.join(process.env.JAVA_HOME, 'bin', exe), 'java'];
   if (process.platform === 'linux') for (const d of ['/usr/lib/jvm']) { try { for (const n of fs.readdirSync(d)) cands.push(path.join(d, n, 'bin', exe)); } catch (e) {} }
-  for (const c of cands.filter(Boolean)) { const m = javaMajor(c); if (m >= need) return c; }
+  for (const c of cands.filter(Boolean)) { const m = javaMajor(c); if (m >= need && hasGui(c)) return c; }
   emit('Downloading Java ' + need);
   const url = URLS.adoptium.replace('%V%', need).replace('%OS%', OSN === 'osx' ? 'mac' : OSN).replace('%ARCH%', ARCH === 'x86_64' ? 'x64' : ARCH === 'arm64' ? 'aarch64' : 'x32');
   await fsp.mkdir(local, { recursive: true });
@@ -162,8 +166,8 @@ function expand(s, vars) { return s.replace(/\$\{(\w+)\}/g, (m, k) => (k in vars
 async function launch(opts) {
   const emit = (step, frac, log) => opts.onEvent && opts.onEvent({ type: 'progress', step, frac, log });
   const root = dataRoot(), p = opts.profile, mc = p.v, loader = p.l;
-  if (!/^[\w .-]+$/.test(p.n)) throw new Error('Profile name has unsupported characters.');
-  const gameDir = path.join(root, 'instances', p.n.replace(/\s+/g, '_'));
+  const safeName = String(p.n || 'Profile').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '') || 'Profile';
+  const gameDir = path.join(root, 'instances', safeName);
   await fsp.mkdir(gameDir, { recursive: true });
   const S = (i, name) => ({ log: m => emit(i, undefined, m), prog: f => emit(i, f), name });
 
@@ -188,9 +192,10 @@ async function launch(opts) {
   if (!dl) throw new Error('No client download for ' + mc);
   emit(2, 0, 'Game jar');
   await download(dl.url, clientJar, dl.sha1);
-  const libs = [], natives = [], cpath = [];
+  const libs = [], natives = [], cpath = [], seenKey = new Set();
   for (const l of vj.libraries || []) {
     if (!ruleOk(l.rules)) continue;
+    if (l.name) { const pr = l.name.split(':'), key = pr[0] + ':' + pr[1] + ':' + (pr[3] || '') + (l.natives ? ':n' : ''); if (seenKey.has(key)) continue; seenKey.add(key); }
     if (l.downloads && l.downloads.artifact) {
       const a = l.downloads.artifact; libs.push({ url: a.url, dest: path.join(root, 'libraries', a.path), sha1: a.sha1 }); cpath.push(path.join(root, 'libraries', a.path));
     } else if (!l.downloads && l.name) {
@@ -201,6 +206,7 @@ async function launch(opts) {
       if (a) { libs.push({ url: a.url, dest: path.join(root, 'libraries', a.path), sha1: a.sha1 }); natives.push({ dest: path.join(root, 'libraries', a.path), exclude: (l.extract && l.extract.exclude) || [] }); }
     }
   }
+  const seenDest = new Set(); for (let i = libs.length - 1; i >= 0; i--) { if (seenDest.has(libs[i].dest)) libs.splice(i, 1); else seenDest.add(libs[i].dest); }
   let n = 0; await pool(libs, 8, async x => { await download(x.url, x.dest, x.sha1); emit(2, ++n / libs.length, path.basename(x.dest)); });
   const nativesDir = path.join(root, 'natives', mc + '-' + process.pid); await fsp.rm(nativesDir, { recursive: true, force: true }); await fsp.mkdir(nativesDir, { recursive: true });
   for (const nt of natives) cp.spawnSync('unzip', ['-qo', nt.dest, '-d', nativesDir, '-x'].concat(['META-INF/*']));
@@ -242,17 +248,24 @@ async function launch(opts) {
   else { jvm = ['-Djava.library.path=${natives_directory}', '-cp', '${classpath}']; game = (vj.minecraftArguments || '').split(' ').filter(Boolean); }
   jvm = jvm.map(a => expand(a, vars)); game = game.map(a => expand(a, vars));
   const user = (opts.jvmArgs || '').split(/\s+/).filter(Boolean);
-  const args = ['-Xms512M', '-Xmx' + (p.ram || 4) + 'G'].concat(user, jvm, [vj.mainClass], game);
+  const args = ['-Xms512M', '-Xmx' + (p.ram || 4) + 'G'].concat(process.platform === 'darwin' ? ['-XstartOnFirstThread'] : [], user, jvm, [vj.mainClass], game);
   if (opts.server) { const [h, pt] = opts.server.split(':'); const mm = /^1\.(\d+)/.exec(mc), minor = mm ? +mm[1] : 99; if (minor >= 20) args.push('--quickPlayMultiplayer', opts.server); else args.push('--server', h, '--port', pt || '25565'); }
 
   emit(5, .5, 'Starting Java');
-  const child = cp.spawn(javaBin, args, { cwd: gameDir, stdio: ['ignore', 'pipe', 'pipe'], detached: false });
-  const tail = []; let started = false;
-  const onData = d => { const t = d.toString('utf8'); t.split('\n').forEach(l => { if (!l.trim()) return; tail.push(l); if (tail.length > 40) tail.shift(); if (!started && /Setting user|Backend library|OpenAL initialized|Sound engine started|LWJGL version/.test(l)) { started = true; emit(5, 1, 'Minecraft window is opening'); opts.onEvent && opts.onEvent({ type: 'started' }); } }); };
-  child.stdout.on('data', onData); child.stderr.on('data', onData);
-  const t = setTimeout(() => { if (!started) { started = true; opts.onEvent && opts.onEvent({ type: 'started' }); } }, 25000);
-  child.on('error', e => { clearTimeout(t); opts.onEvent && opts.onEvent({ type: 'exit', code: -1, tail: [String(e)] }); });
-  child.on('exit', code => { clearTimeout(t); opts.onEvent && opts.onEvent({ type: 'exit', code, tail: tail.slice(-15) }); fsp.rm(nativesDir, { recursive: true, force: true }).catch(() => {}); });
-  return { pid: child.pid, gameDir, java: javaBin, report: rep, args };
+  await fsp.mkdir(path.join(gameDir, 'logs'), { recursive: true });
+  const logFile = path.join(gameDir, 'logs', 'zenith-launch.log'), fd = fs.openSync(logFile, 'w');
+  const child = cp.spawn(javaBin, args, { cwd: gameDir, stdio: ['ignore', fd, fd], detached: true });
+  child.unref(); fs.closeSync(fd);
+  let started = false, finished = false;
+  const readTail = () => { try { const st = fs.statSync(logFile), len = Math.min(st.size, 20000), b2 = Buffer.alloc(len), h = fs.openSync(logFile, 'r'); fs.readSync(h, b2, 0, len, st.size - len); fs.closeSync(h); return b2.toString('utf8').split('\n').filter(x => x.trim()); } catch (e) { return []; } };
+  const poll = setInterval(() => {
+    if (started || finished) return;
+    if (readTail().some(l => /Setting user|Backend library|OpenAL initialized|Sound engine started|LWJGL version/.test(l))) { started = true; emit(5, 1, 'Minecraft window is opening'); opts.onEvent && opts.onEvent({ type: 'started' }); }
+  }, 500);
+  const t = setTimeout(() => { if (!started && !finished) { started = true; opts.onEvent && opts.onEvent({ type: 'started' }); } }, 40000);
+  const done = (code, extra) => { if (finished) return; finished = true; clearInterval(poll); clearTimeout(t); opts.onEvent && opts.onEvent({ type: 'exit', code, started, tail: (extra || []).concat(readTail().slice(-15)) }); fsp.rm(nativesDir, { recursive: true, force: true }).catch(() => {}); };
+  child.on('error', e => done(-1, [String(e)]));
+  child.on('exit', code => done(code));
+  return { pid: child.pid, gameDir, java: javaBin, report: rep, args, logFile };
 }
 module.exports = { launch, offlineUuid, ruleOk, mavenPath, dataRoot, URLS };

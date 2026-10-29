@@ -28,6 +28,13 @@ cd Zenith-Client
 ```
 Or run it once without a menu entry: `./zenith.sh`. For a single file, `cd app && npm run dist` makes an AppImage.
 
+## Discord status ("Playing Zenith Client")
+
+1. Go to https://discord.com/developers/applications, click New Application and name it **Zenith Client** (Discord shows this name as "Playing Zenith Client").
+2. Copy the **Application ID** and paste it into `app/config.json` as `discordClientId`.
+3. Optional: in Rich Presence > Art Assets upload your logo with the key `zenith`.
+4. Rebuild with `./publish.sh v1.0.x`. Discord must be open on the player's computer. It shows "In the launcher", "Preparing <profile>" and "Playing Minecraft <version>".
+
 ## What Play does in the app
 
 1. Downloads the Minecraft version, Fabric loader, libraries and assets into `~/.zenith-client`.

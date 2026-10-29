@@ -24,6 +24,8 @@
       "main.js",
       "preload.js",
       "engine.js",
+      "discord.js",
+      "config.json",
       "launcher/**",
       "icon.png"
     ],

@@ -15,7 +15,9 @@ const MODES = process.platform === 'linux' ? [
   { name: 'x11-swiftshader', sw: [['ozone-platform', 'x11'], ['use-angle', 'swiftshader'], 'enable-unsafe-swiftshader'], hw: true },
   { name: 'wayland-software', sw: ['disable-gpu', ['ozone-platform', 'wayland']], hw: false },
   { name: 'x11-no-gpu-compositing', sw: [['ozone-platform', 'x11'], 'disable-gpu-compositing'], hw: true },
-  { name: 'in-process-gpu', sw: [['ozone-platform', 'x11'], 'in-process-gpu', 'disable-gpu-sandbox'], hw: true }
+  { name: 'in-process-gpu', sw: [['ozone-platform', 'x11'], 'in-process-gpu', 'disable-gpu-sandbox'], hw: true },
+  { name: 'x11-software-noshm', sw: [['ozone-platform', 'x11'], 'disable-gpu', 'disable-dev-shm-usage', 'disable-site-isolation-trials'], hw: false },
+  { name: 'single-process', sw: [['ozone-platform', 'x11'], 'disable-gpu', 'single-process', 'disable-dev-shm-usage'], hw: false }
 ] : [{ name: 'default', sw: [], hw: true }];
 function pickMode() {
   const a = process.argv.find(x => x.startsWith('--zenith-mode='));
@@ -50,12 +52,13 @@ function watchdog() {
     log('window did not draw within', ms, 'ms in mode', MODE, MODES[MODE].name);
     if (MODE + 1 < MODES.length) {
       log('trying next mode', MODE + 1);
-      app.releaseSingleInstanceLock(); app.relaunch({ args: process.argv.slice(1).filter(x => !x.startsWith('--zenith-mode=')).concat(['--zenith-mode=' + (MODE + 1)]) }); app.exit(0);
+      app.releaseSingleInstanceLock(); app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: process.argv.slice(1).filter(x => !x.startsWith('--zenith-mode=')).concat(['--zenith-mode=' + (MODE + 1)]) }); app.exit(0);
     } else {
       try { require('electron').dialog.showErrorBox('Zenith could not draw its window', 'None of the rendering modes worked on this computer.\nPlease send this file to support: ' + LOG); } catch (e) {}
     }
   }, ms);
 }
+app.on('child-process-gone', (e, d) => log('child-process-gone', d.type, d.reason, 'exitCode', d.exitCode));
 let win;
 function create() {
   win = new BrowserWindow({
@@ -69,7 +72,7 @@ function create() {
   win.webContents.on('console-message', (e, lvl, msg, line, src) => { if (lvl >= 2) log('[page error]', msg, src + ':' + line); });
   win.webContents.on('did-finish-load', () => log('page loaded'));
   win.webContents.on('did-fail-load', (e, code, desc) => { log('did-fail-load', code, desc); win.loadURL('data:text/html,<body style="background:%2306060b;color:%23fff;font:16px sans-serif;padding:40px">Zenith could not load its interface (' + encodeURIComponent(desc) + '). See ' + encodeURIComponent(LOG) + '</body>'); });
-  win.webContents.on('render-process-gone', (e, d) => log('render-process-gone', d.reason));
+  win.webContents.on('render-process-gone', (e, d) => log('render-process-gone', d.reason, 'exitCode', d.exitCode));
   win.webContents.on('unresponsive', () => log('page unresponsive'));
   win.webContents.on('before-input-event', (e, i) => { if (i.type === 'keyDown' && i.control && i.shift && i.key.toLowerCase() === 'i') win.webContents.toggleDevTools(); });
   win.loadFile(page);
